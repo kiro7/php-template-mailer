@@ -5,13 +5,11 @@ class TemplateMailer {
 	private $mailer;
 	private $fields;
 	private $log;
-
-	private $mail_to;
-	private $mail_subject;
-	private $mail_message;
-	private $mail_headers;	
 	
 	private $from;
+	private $reply_to;
+	private $cc;
+	private $bcc;
 	private $subject;
 	private $message;
 	private $headers;
@@ -21,8 +19,8 @@ class TemplateMailer {
 	private $password;
 	private $database;
 	private $table;
-	private $port;
-	private $params;	
+	private $params;
+	private $callback;
 	
 	private $db_object;
 	private $db_statement;
@@ -30,7 +28,7 @@ class TemplateMailer {
 	public function TemplateMailer( $mailer = "php" )
 	{
 		// check php version
-		if ( version_compate(PHP_VERSION,"5.3.0") < 0 )
+		if ( version_compare(PHP_VERSION,"5.3.0") < 0 )
 		{
 			throw new Exception("Minimum PHP version 5.3.0 required.");
 		}
@@ -39,9 +37,9 @@ class TemplateMailer {
 		switch ( $mailer )
 		{
 			case "php":
-			case "smtp":
 			case "queue":
 			case "test":
+			case "callback":
 				$this->mailer = $mailer;
 				break;
 			default:
@@ -54,23 +52,26 @@ class TemplateMailer {
 	}
 	
 	// set mailer options
-	public function setOptions( $options = array() )
+	public function config( $config = array() )
 	{
-		foreach ( $options as $key => $value )
+		foreach ( $config as $key => $value )
 		{
-			switch ( $key )
+			switch ($key)
 			{
 				case "log":
 				case "subject":
 				case "message":
 				case "headers":
 				case "from":
+				case "reply_to":
+				case "cc":
+				case "bcc":
 				case "hostname":
 				case "username":
 				case "password":
 				case "database":
-				case "port":
 				case "params":
+				case "callback":
 					$this->{$key} = $value;
 					break;
 				default:
@@ -81,43 +82,80 @@ class TemplateMailer {
 	}
 
 	// send message
-	public function send($to,$fields = NULL)
+	public function send($to, $fields = NULL, $cc = NULL, $bcc = NULL, $reply_to = NULL)
 	{
 		try 
 		{
 			// re-use previous fields if not provided
 			if ( $fields != NULL ) $this->fields = $fields;
-			
-			$this->mail_to 			= $to;
-			$this->mail_subject 		= $this->prepare($this->subject);
-			$this->mail_message 		= $this->prepare($this->message);
-			$base_headers			= "From: {from}\r\nX-Mailer: php\r\n";
-			$this->mail_headers		= $this->prepare($base_headers.$this->headers);
+					
+			$to 			= $this->generate_email_list($to);
+			$subject 		= $this->prepare($this->subject);
+			$body 			= $this->prepare($this->message);
+			$headers		= $this->generate_headers($cc,$bcc,$reply_to);
 			$this->preflight();
 			
 			switch ( $this->mailer )
 			{
 				case "php":
-					$this->send_php();
-					break;
-				case "smtp":
-					$this->send_smtp();
-					break;
+					return $this->send_php($to,$subject,$headers,$body);
 				case "queue":
-					$this->send_queue();
-					break;
+					return $this->send_queue($to,$subject,$headers,$body);
+				case "callback":
+					return $this->send_callback($to,$subject,$headers,$body);
 				case "test":
-					$this->send_test();
-					break;
+					return $this->send_test($to,$subject,$headers,$body);
 			}
-			
-			return TRUE;
 		}
-		catch ( Exception $e)
+		catch ( Exception $e )
 		{
-			$this->handle_exception("unable to send message",$e)
+			$this->handle_exception("Unable to send message.",$e);
 			return FALSE;
 		}
+	}
+
+	private function generate_headers($cc = NULL, $bcc = NULL, $reply_to = NULL)
+	{
+		$headers = "X-Mailer: php\r\n";
+
+		// from
+		$headers .= $this->generate_header_line("From: ",$this->from,NULL);
+		// cc
+		$headers .= $this->generate_header_line("cc: ",$this->cc,$cc);
+		// bcc
+		$headers .= $this->generate_header_line("bcc: ",$this->bcc,$bcc);
+		// reply-to
+		$headers .= $this->generate_header_line("Reply-To: ",$this->reply_to,$reply_to);
+		// append user headers
+		$headers .= $this->headers;
+
+		return $headers;
+	}
+
+	private function generate_header_line($header,$default,$provided)
+	{	
+		// choose default or provided values
+		if ( $provided != NULL ) $data = $provided;
+		else if ( $default != NULL ) $data = $default;
+		else return "";
+
+		return $header . $this->generate_email_list($data) . "\r\n";
+
+	}
+
+	private function generate_email_list($email)
+	{
+		if ( is_array($email) )
+		{
+			$list = "";
+			foreach ( $email as $name => $address )
+			{
+				if ( is_string($name) AND is_string($address) ) $list .= "'$name' <$address>, ";
+				else $list .= "$address, ";
+			}
+			return rtrim($list," ,");
+		}
+		else return $email;
 	}
 
 	// fill and format template for sending
@@ -131,17 +169,12 @@ class TemplateMailer {
 			$format = "%s";
 			if ( is_array($value) )
 			{
-				$format = $value["format"];
-				$value = $value["value"];
+				$format = $value[0];
+				$value = $value[1];
 			}
 			$template = $this->template_replace($keyword,$value,$format,$template);
 		}
-
-		// replace base fields
-		$template = $this->template_replace("to",$this->mail_to ,"%s",$template);
-		$template = $this->template_replace("from",$this->from,"%s",$template);
-		$template = $this->template_replace("hostname",$this->hostname,"%s",$template);
-		
+	
 		return $template;
 	}
 
@@ -157,20 +190,10 @@ class TemplateMailer {
 	private function preflight()
 	{
 		// global requirements
-		if ( !isset($this->mail_to) ) throw new Exception("To address is not set.");
 		if ( !isset($this->from) ) throw new Exception("From address is not set.");
 		if ( !isset($this->subject) ) throw new Exception("Subject is not set.");
 		if ( !isset($this->message) ) throw new Exception("Message is not set.");
-
-		// smtp specific requirements
-		if ( $this->mailer == "smtp")
-		{
-			if ( !isset($this->hostname) ) throw new Exception("Mailer hostname is not set.");
-			if ( !isset($this->username) ) throw new Exception("Mailer username is not set.");
-			if ( !isset($this->password) ) throw new Exception("Mailer password is not set.");
-			if ( !isset($this->port) ) throw new Exception("Mailer port is not set.");
-		}
-		
+	
 		// queue specific requirements
 		if ( $this->mailer == "queue" )
 		{
@@ -180,41 +203,29 @@ class TemplateMailer {
 			if ( !isset($this->database) ) throw new Exception("Queue database is not set.");
 		}
 
-	}
-
-	// send with php mail() function
-	private function send_php()
-	{
-		$to		= $this->mail_to:
-		$subject 	= $this->mail_subject;
-		$message 	= $this->mail_message;
-		$headers 	= $this->mail_headers;
-		$params 	= $this->params;
-
-		if ( !mail($to,$subject,$message,$headers,$params) ) 
+		// callback sepcific requirements
+		if ( $this->mailer == "callback" )
 		{
-			throw new Exception("Unknown error when sending message to '$to' using mail().");
+			if ( !isset($this->callback) ) throw new Exception("Callback function has not been set.");
+			if ( !is_callable($this->callback) ) throw new Exception("Callback function is not callable.");
 		}
 
 	}
 
-	// send to smtp server
-	private function send_smtp()
+	// send with php mail() function
+	private function send_php($to,$subject,$headers,$body)
 	{
-		throw new Exception("SMTP sending not yet implemented.")
-		
-		// set SMTP parameters
-		ini_set("SMTP",$this->hostname);
-		ini_set("sendmail_from",$this->from);
-		ini_set("smtp_port",$this->port);
-		
-		$this->params = "";
-		
-		$this->send_php();		
+		error_log("php send");
+		if ( !mail($to,$subject,$body,$headers,$this->params) ) 
+		{
+			throw new Exception("Unknown error when sending message to '$to' using mail().");
+		}
+
+		return TRUE;
 	}
 
 	// send to a queue for processing
-	private function send_queue()
+	private function send_queue($to,$subject,$headers,$body)
 	{
 		// prepare database connection
 		if ( $this->db_object == NULL )
@@ -227,48 +238,59 @@ class TemplateMailer {
 			}
 			
 			// prepare database statement
-			$sql = "INSERT INTO ".$this->table."(to,from,headers,subject,message) VALUES(?,?,?,?,?)";
-			$this->db_statement = $this->db_object->prepare($sql)
+			$sql = "INSERT INTO ".$this->table."(to,subject,headers,body) VALUES(?,?,?,?)";
+			$this->db_statement = $this->db_object->prepare($sql);
 			
 			// check for statement error
 			if ( $this->db_statement == FALSE )
 			{
 				throw new Exception("Error preparing SQL query for execution. Check your syntax.");
-			}
-
-			// bind to mailer variables
-			$this->db_statement->bind_param("sssss",$this->mail_to,$this->from,$this->mail_headers,$this->mail_subject,$this->mail_message);			
+			}			
 		}
-		
+
 		// insert row
+		$this->db_statement->bind_param("ssss",$to,$subject,$headers,$body);
 		$result = $this->db_statement->execute();
 		
 		if ( $result == FALSE ) 
 		{
 			throw new Exception("Unable to insert message row into queue. ".$this->db_statement->error,1);
-		}		
+		}
+
+		return TRUE;		
+	}
+
+	// send to a custom callback function
+	private function send_callback($to,$subject,$headers,$body)
+	{
+		if ( is_callable($this->callback) )
+		{
+			return call_user_func($this->callback,$to,$subject,$headers,$body);
+		}
+		else throw new Exception("Unable to call user callback function.");
 	}
 
 	// do not send, test only
-	private function send_test()
+	private function send_test($to,$subject,$headers,$body)
 	{
 		$message = "==================================================\r\n";
 		$message .= "PHP Mailer Class - TEST MODE\r\n";
-		$message .= "TO: ".$this->mail_to."\r\n";
-		$message .= "FROM: ".$this->from."\r\n";
-		$message .= "SUBJECT: ".$this->mail_subject."\r\n";
-		$message .= "HEADERS: ".$this->mail_headers."\r\n";
-		$message .= "MESSAGE: ".$this->mail_message."\r\n";
+		$message .= "TO: $to\r\n";
+		$message .= "SUBJECT: $subject\r\n";
+		$message .= "HEADERS: $headers\r\n";
+		$message .= "BODY: $body\r\n";
 		$message .= "==================================================\r\n";
 		
 		$this->log($message);
+
+		return TRUE;
 	}
 
 	// write errors and warnings to log gile
 	private function handle_exception($note,$e)
 	{
-		if ( (int)$e->getCode == 1 ) $message = "Warning: $note ".$e->getMessage."\n".$e->getTraceAsString;
-		else $message = "Error: $note ".$e->getMessage."\n".$e->getTraceAsString;
+		if ( (int)$e->getCode() == 1 ) $message = "Warning: $note ".$e->getMessage()."\n".$e->getTraceAsString();
+		else $message = "Error: $note ".$e->getMessage()."\n".$e->getTraceAsString();
 
 		$this->log($message);
 	}
@@ -276,7 +298,7 @@ class TemplateMailer {
 	// write message to log file
 	private function log($message)
 	{
-		$message = "TemplateMailer - ".$message;
+		$message = "TemplateMailer\r\n".$message;
 		if ( isset($this->log) ) 
 		{
 			if ( is_writeable($this->log) )
