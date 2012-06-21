@@ -1,7 +1,7 @@
 PHP Template Mailer
 ===================
 
-A simple php template based mass mailer class. Supports sendmail, smtp, and database queuing.
+A simple php template based mass mailer class. Supports sendmail, callback, and database queuing.
 
 Features
 --------
@@ -13,54 +13,10 @@ Features
 Requirements
 ------------
 
-Example Usage
--------------
-
-````
-<?php
-
-require_once("TemplateMailer.class.php");
-$mailer = new TemplateMailer("php");
-$options = array(
-  "from" => "no-reply@foo.com",
-  "subject" => "A message for {to} from foo.com",
-  "message" => "Hello {to},\r\nThanks for your recent order! Your order number is {order_num}.";
-);
-$mailer->setOptions($options);
-
-$recipients = array(
-  "andrew@foo.com",
-  "burt@foo.com",
-  "curtis@foo.com",
-  "drew@foo.com"
-);
-
-foreach ( $recipents as $to )
-{
-  $fields = array(
-    "order_num" => array("%s","123456789")
-  )
-  $mailer->send($to,$fields);
-}
-
-?>
-````
+- PHP 5.3 and above.
 
 Interface
 ---------
-
-TemplateMailer(string $mailer)
-
-- $mailer is a string that sets how email messages should be sent.
-- 'php': send using the default PHP mail() function.
-- 'smtp': send using the PHP mail() function with SMTP server settings forced.
-- 'queue': send messages to a database for queue based sending.
-- 'test': do not send message, write to log file instead
-
-setOptions(array $options)
-
-- $options is an array in the format "option" => "value".
-- Allows setting of all class options.
 
 send(string $to, array $fields)
 
@@ -71,49 +27,69 @@ send(string $to, array $fields)
 - $fields = array("field" => "value")
 - $fields = array("field" => array("sprintf_format_string","value")
 
+Starting the Mailer
+-------------------
+
+The TemplateMailer constructor requires only one parameter, the mailer type to use.
+
+- ```php```: send generated messages to PHP's mail() function
+- ```callback```: send generated messages to a user provided callback function
+- ```queue```: send generated messages to a SQL database for queued sending later
+- ```test```: send messages to a log file, do not send
+
+Configurable Options
+--------------------
+
+The following options can be set with the ```config($array) ``` function. Options should be passed to ```config()``` as an array with format ```$config = array("key" => "value")```.
+
+- ```log```: string, optional, log file to use, logged to PHP default otherwise, full path required
+- ```subject```: string, required, the subject template to use for all messages
+- ```message```: string, required, the message template to use for all messages
+- ```headers```: string, optional, formatted headers to include with each message
+- ```from```: string, required, email address all emails should be sent "from"
+- ```reply_to```: string, optional, email address to appear in reply-to field
+- ```cc```: string or array, optional, address(es) to be CC'd on all messages
+- ```bcc```: string or array, optional, address(es) to be BCC'd on all messages
+- ```hostname```: string, required for queue, hostname of SQL server
+- ```username```: string, required for queue, username for SQL server
+- ```password```: string, required for queue, password for SQL server
+- ```database```: string, required for queue, database to use for SQL server
+- ```params```: string, optional, extra parameters to pass to sendmail
+- ```callback```: callback, required for callback sending, user callback function
+
 Template Format
 ---------------
 
-The subject, message, and headers are defined as templates. Their values should be formatted strings set via the setOptions function.
+The subject and message submited to ```config()``` are templates. As such, you can define varibles to be replaced when each message is sent. Each template should be sent as a string with varibales formatted as ```{variablename}```. When you can send, you will provide an array of variable values that will replace those bracketed entries. Here's an example.
 
-Each template can contain any number of fields, which are replaced automatically when messages are sent. Fields should appear in a template string as follows.
+```php
+$mailer = new TemplateMailer("test");
+$config = array(
+  "message" => "Hello {name},\r\n\r\nThanks for your recent {item} purchase.";
+);
+$mailer->config($config);
+$fields = array(
+  "name" => "Tim",
+  "item" => array("%s","clothing")
+);
+$mailer->send("test@test.test",$fields);
+```
+In the example above, the variable "name" is replaced with the string "Tim" and the variable "item" is replaced by the string "clothing". Note that you can also pass a sprintf compatible formatting string with the replacement text, as was done in the example above for the variable item.
 
-````
-$message = "This is the message I would like to send to {field_name_1}.\r\nThanks for your order of {field_name_2}";
-````
+You can create as many variable as you want with whatever names you want, with the exception of "to", which is a reserved word.
 
-These fields will be replaced by whichever values are passed to the send($to,$fields) function. 
-
-In addition to any user defined fields, the following fields will automatically be replaced:
-- to
-- from
-- hostname
-
-Available Options
+Sending a Message
 -----------------
 
-The following options are available to be set. All values should be given as strings.
+Once the templates are defined and the configuration details have been set, you're ready to send messages. This is done by calling the ```send()``` function.
 
-- to
-- from
-- subject
-- message
-- headers
-- hostname (for SMTP or queue)
-- username (for SMTP or queue)
-- password (for SMTP or queue)
-- port (for SMTP)
-- params (for php)
-- database (for queue)
-- table (for queue)
-- db_col_to (COMING SOON)
-- db_col_from (COMING SOON)
-- db_col_subject (COMING SOON)
-- db_col_message (COMING SOON)
-- db_col_headers (COMING SOON)
-- cc (COMING SOON)
-- bcc (COMING SOON)
-- log
+```
+$mailer->send($to, $fields = NULL, $cc = NULL, $bcc = NULL, $reply_to = NULL);
+```
+
+The only required parameter is ```$to```, although if you don't provide ```$fields```, you won't be able to replace variables included in your subject or message templates.
+
+In addition to the default CC, BCC, and Reply-To that were set with ```config()```, you can override those values here for one message.
 
 Legal
 -----
