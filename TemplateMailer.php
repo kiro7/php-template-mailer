@@ -71,7 +71,7 @@ class TemplateMailer {
 				case "database":
 				case "port":
 				case "params":
-					$this->$key = $value;
+					$this->{$key} = $value;
 					break;
 				default:
 					return FALSE;
@@ -88,10 +88,10 @@ class TemplateMailer {
 			// re-use previous fields if not provided
 			if ( $fields != NULL ) $this->fields = $fields;
 			
-			$this->mail_to 				= $to;
+			$this->mail_to 			= $to;
 			$this->mail_subject 		= $this->prepare($this->subject);
-			$this->mail_message 	= $this->prepare($this->message);
-			$base_headers				= "From: {from}\r\nX-Mailer: php\r\n";
+			$this->mail_message 		= $this->prepare($this->message);
+			$base_headers			= "From: {from}\r\nX-Mailer: php\r\n";
 			$this->mail_headers		= $this->prepare($base_headers.$this->headers);
 			$this->preflight();
 			
@@ -185,8 +185,8 @@ class TemplateMailer {
 	// send with php mail() function
 	private function send_php()
 	{
-		$to				= $this->mail_to:
-		$subject 		= $this->mail_subject;
+		$to		= $this->mail_to:
+		$subject 	= $this->mail_subject;
 		$message 	= $this->mail_message;
 		$headers 	= $this->mail_headers;
 		$params 	= $this->params;
