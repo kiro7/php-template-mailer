@@ -15,18 +15,6 @@ Requirements
 
 - PHP 5.3 and above.
 
-Interface
----------
-
-send(string $to, array $fields)
-
-- Sends an individual message to a single recipent.
-- $to is a string containing a single email address.
-- $fields is an array that contains all fields in the template subject and message that should be replaced.
-- $fields can be given in several formats:
-- $fields = array("field" => "value")
-- $fields = array("field" => array("sprintf_format_string","value")
-
 Starting the Mailer
 -------------------
 
@@ -77,6 +65,31 @@ $mailer->send("test@test.test",$fields);
 In the example above, the variable "name" is replaced with the string "Tim" and the variable "item" is replaced by the string "clothing". Note that you can also pass a sprintf compatible formatting string with the replacement text, as was done in the example above for the variable item.
 
 You can create as many variable as you want with whatever names you want, with the exception of "to", which is a reserved word.
+
+Accepted Email Formats
+----------------------
+
+The ```$to```, ```$cc```, and ```$bcc``` fields can accept email addresses in a multitude of formats. The same rules apply to the 'cc' and 'bcc' options set with ```config()```.
+
+- ```$email = "test@test.test"```
+- ```$email = "test@test.test, anne@test.test"```
+- ```$email = "test <test@test.test>, anne <ann@test.test>```
+- ```$email = array("test@test.test","anne@test.test")```
+- ```$email = array("test"=>"test@test.test","anne"=>"anne@test.test")```
+
+Providing a Callback Function
+-----------------------------
+
+The ```'callback'``` config option will be called when the mailer type is set to 'callback'.
+
+Function names must be formatted according to the PHP callable type specifications (http://php.net/manual/en/language.types.callable.php). Typically, callback functions will be formatted in one of the following ways.
+
+- Static Function: ```$callback = "myfunctionname"```
+- Static Class Method: ```$callback = array("myclass","method_name_in_myclass")```
+- Static Class Method: ```$callback = "myclass::method_name_in_myclass"```
+- Object Method: ```$callback = array($myclass,"method_name_in_myclass")```
+
+The provided callback must have four parameters - ```$to```, ```$subject```, ```$headers```, and ```$body```, in that order.
 
 Sending a Message
 -----------------
